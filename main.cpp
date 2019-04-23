@@ -1,7 +1,3 @@
-#include "tbb/task_scheduler_init.h"
-// Rectangle_Method.cpp : Этот файл содержит функцию "main". Здесь начинается и заканчивается выполнение программы.
-//
-
 #include <iostream>
 #include "tbb/task_scheduler_init.h"
 #include "tbb/task_group.h"
@@ -30,8 +26,7 @@ class TaskOneDimIntegral : public task {
      double *res_;
      double local_res_;
  public:
-     TaskOneDimIntegral(double left, double right, double h, double *res) : left_(left), right_(right), h_(h), res_(res) {
-     } 
+     TaskOneDimIntegral(double left, double right, double h, double *res) : left_(left), right_(right), h_(h), res_(res) {} 
      task* execute() {
          if (right_ - left_ < 20.0) {
              local_res_ = 0.0;
@@ -56,6 +51,46 @@ class TaskOneDimIntegral : public task {
 
      double get_res() {
          return *res_;
+     }
+};
+
+class TaskTwoDimIntegral : public task {
+ private:
+    double x_left_;
+    double x_right_;
+    double y_left_;
+    double y_right_;
+    double h_;
+    double *res_;
+    double local_res_;
+
+ public:
+     TaskTwoDimIntegral(double x_left, double x_right, double y_left, double y_right,
+         double h, double *res) : x_left_(x_left), x_right_(x_right), y_left_(y_left), y_right_(y_right),h_(h), res_(res) {}
+
+     task* execute() {
+         if (x_right_ - x_left_ < 1.0) {
+             local_res_ = 0.0;
+             two_dimensional_integral_multi_step(x_left_, x_right_, y_left_,
+                 y_right_,h_, &local_res_);
+             *res_ += local_res_;
+             return NULL;
+         }
+         else {
+             double local_res1 = 0.0, local_res2 = 0.0;
+             task_list list;
+             TaskTwoDimIntegral& a = *new(task::allocate_child()) TaskTwoDimIntegral(x_left_, x_left_ + (x_right_ - 
+                 x_left_) / 2, y_left_, y_right_, h_, &local_res1);
+             TaskTwoDimIntegral& b = *new(task::allocate_child()) TaskTwoDimIntegral(x_left_ + (x_right_ 
+                 - x_left_) / 2, x_right_, y_left_, y_right_, h_, &local_res2);
+             list.push_back(a);
+             list.push_back(b);
+             task::set_ref_count(3);
+             spawn_and_wait_for_all(list);
+             *res_ += local_res1;
+             *res_ += local_res2;
+         }
+         return NULL;
      }
 };
 
@@ -149,7 +184,6 @@ int main(int argc, char **argv)
         one_dimensional_integral(a1, b1, h, &seqRes);
         t1 = tick_count::now();
         std::cout << "Work took sequential version " << (t1 - t0).seconds() << " seconds" << std::endl;
-        //one_dim_integral_parallel(a1, b1, h, &parRes);
         task_list tasks;
         t0 = tick_count::now();
         TaskOneDimIntegral& task = *new(task::allocate_root()) TaskOneDimIntegral(a1, b1, h, &parRes);
@@ -186,14 +220,16 @@ int main(int argc, char **argv)
 
         t0 = tick_count::now();
         two_dimensional_integral_multi_step(a1, b1, a2, b2, h, &seqRes);
-        one_dimensional_integral(a1, b1, h, &seqRes);
         t1 = tick_count::now();
         std::cout << "Work took sequential version " << (t1 - t0).seconds() << " seconds" << std::endl;
+        std::cout << "Result one dimersion integral (sequential version) " << seqRes << std::endl;
 
-
-
-
-        //two_dim_integral_parallel_multi_step(a1, b1, a2, b2, h, &parRes);
+        t0 = tick_count::now();
+        TaskTwoDimIntegral& task = *new(task::allocate_root()) TaskTwoDimIntegral(a1, b1, a2, b2, h, &parRes);
+        task::spawn_root_and_wait(task);
+        t1 = tick_count::now();
+        std::cout << "Work took parallel version " << (t1 - t0).seconds() << " seconds" << std::endl;
+        std::cout << "Result one dimersion integral (Parallel version) " << parRes << std::endl;
 
         //CheckResultsTest(sequentTimeWork, parallTimeWork);
         //Test(seqRes, parRes);
