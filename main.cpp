@@ -11,12 +11,15 @@ using namespace tbb;
 
 double val_one_dimensional_func(double x);
 double val_two_dimensonal_func(double x1, double x2);
+double val_two_dimensonal_func_2(double x1, double x2);
 
 void one_dimensional_integral(double a, double b, double h, double *res);
 void one_dim_integral_parallel(double a, double b, double h, double *res);
 
 void two_dimensional_integral_fix_point(double a1, double a2, double b2, double h, double *res);
 void two_dimensional_integral_multi_step(double a1, double b1, double a2, double b2, double h, double *res);
+
+void CheckResultsTest(double sequentTime, double parallelTime);
 
 class TaskOneDimIntegral : public task {
  private:
@@ -62,7 +65,6 @@ class TaskTwoDimIntegral : public task {
     double y_right_;
     double h_;
     double *res_;
-    double local_res_;
 
  public:
      TaskTwoDimIntegral(double x_left, double x_right, double y_left, double y_right,
@@ -70,10 +72,10 @@ class TaskTwoDimIntegral : public task {
 
      task* execute() {
          if (x_right_ - x_left_ < 1.0) {
-             local_res_ = 0.0;
+             double local_res = 0.0;
              two_dimensional_integral_multi_step(x_left_, x_right_, y_left_,
-                 y_right_,h_, &local_res_);
-             *res_ += local_res_;
+                 y_right_,h_, &local_res);
+             *res_ += local_res;
              return NULL;
          }
          else {
@@ -94,13 +96,94 @@ class TaskTwoDimIntegral : public task {
      }
 };
 
+class TaskTwoDimIntegralXY : public task {
+private:
+    double x_left_;
+    double x_right_;
+    double y_left_;
+    double y_right_;
+    double h_;
+    double *res_;
+    double local_res_;
+
+public:
+    TaskTwoDimIntegralXY(double x_left, double x_right, double y_left, double y_right,
+        double h, double *res) : x_left_(x_left), x_right_(x_right), y_left_(y_left), 
+        y_right_(y_right), h_(h), res_(res) {}
+
+    task* execute() {
+        if (x_right_ - x_left_ <= 1.0 && y_right_ - y_left_ <= 1.0) {
+            local_res_ = 0.0;
+            two_dimensional_integral_multi_step(x_left_, x_right_, y_left_,
+                y_right_, h_, &local_res_);
+            *res_ += local_res_;
+            return NULL;
+        }
+        else if (x_right_ - x_left_ <= 1.0 && y_right_ - y_left_ > 1.0) {
+            double local_res1 = 0.0, local_res2 = 0.0;
+            task_list list;
+            TaskTwoDimIntegralXY& a = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_, x_right_,
+                y_left_, y_left_ + (y_right_ - y_left_) / 2, h_, &local_res1);
+            TaskTwoDimIntegralXY& b = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_, x_right_,
+                y_left_ + (y_right_ - y_left_) / 2, y_right_, h_, &local_res2);
+            list.push_back(a);
+            list.push_back(b);
+            task::set_ref_count(3);
+            spawn_and_wait_for_all(list);
+            *res_ += local_res1;
+            *res_ += local_res2;
+        }
+        else if (x_right_ - x_left_ > 1.0 && y_right_ - y_left_ <= 1.0) {
+            double local_res1 = 0.0, local_res2 = 0.0;
+            task_list list;
+            TaskTwoDimIntegralXY& a = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_, x_left_ +
+                (x_right_ - x_left_) / 2, y_left_, y_right_, h_, &local_res1);
+            TaskTwoDimIntegralXY& b = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_ +
+                (x_right_ - x_left_) / 2, x_right_, y_left_, y_right_, h_, &local_res2);
+            list.push_back(a);
+            list.push_back(b);
+            task::set_ref_count(3);
+            spawn_and_wait_for_all(list);
+            *res_ += local_res1;
+            *res_ += local_res2;
+        }
+        else {
+            double local_res1 = 0.0, local_res2 = 0.0, local_res3 = 0.0, local_res4 = 0.0;
+            task_list list;
+            TaskTwoDimIntegralXY& a = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_, x_left_ + (x_right_ -
+                x_left_) / 2, y_left_, y_left_ + (y_right_ - y_left_) / 2, h_, &local_res1);
+            TaskTwoDimIntegralXY& b = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_ + (x_right_
+                - x_left_) / 2, x_right_, y_left_, y_left_ + (y_right_ - y_left_) / 2, h_, &local_res2);
+            TaskTwoDimIntegralXY& c = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_, x_left_ + (x_right_ -
+                x_left_) / 2, y_left_ + (y_right_ - y_left_) / 2, y_right_, h_, &local_res3);
+            TaskTwoDimIntegralXY& d = *new(task::allocate_child()) TaskTwoDimIntegralXY(x_left_ + (x_right_
+                - x_left_) / 2, x_right_, y_left_ + (y_right_ - y_left_) / 2, y_right_, h_, &local_res4);
+
+            list.push_back(a);
+            list.push_back(b);
+            list.push_back(c);
+            list.push_back(d);
+            task::set_ref_count(5);
+            spawn_and_wait_for_all(list);
+            *res_ += local_res1;
+            *res_ += local_res2;
+            *res_ += local_res3;
+            *res_ += local_res4;
+        }
+        return NULL;
+    }
+};
+
+
 
 double val_one_dimensional_func(double x) {
     return sin(x);
 }
-
 double val_two_dimensonal_func(double x1, double x2) {
     return sin(x1) * cos(x2);
+}
+double val_two_dimensonal_func_2(double x1, double x2) {
+    return 0.5*sin(x1*x2)*x1*x2*log((x1/10) + 1);
 }
 
 void one_dimensional_integral(double a, double b, double h, double *res) {
@@ -138,13 +221,21 @@ void two_dimensional_integral_fix_point(double a1, double a2, double b2, double 
 
     for (double j = a2; j < b2; j += h)
     {
-        sum += val_two_dimensonal_func(a1, j) * h;
+        sum += val_two_dimensonal_func_2(a1, j) * h;
     }
 
     *res = sum;
 }
 
+void CheckResultsTest(double sequentTime, double parallelTime) {
+    std::cout << "The analysis of the running time of algorithms " << std::endl;
+    if (parallelTime < sequentTime)
+        std::cout << "Parallel algorithm is faster" << std::endl;
+    else
+        std::cout << "Sequential algorithm is faster" << std::endl;
 
+    std::cout << "Speedup " << sequentTime / parallelTime << std::endl;
+}
 
 int main(int argc, char **argv)
 {
@@ -152,11 +243,11 @@ int main(int argc, char **argv)
     double a1 = 0.0, b1 = 10.0, a2 = 0.0, b2 = 10.0;
     double h = 0.001;
     double seqRes = 0.0, parRes = 0.0;
-    int num_threads = 4;
+    int num_threads = 8;
     double result = 0.0;
+    double seqTime = 0.0, parTime = 0.0;
 
     tbb::task_scheduler_init init(num_threads);
-    tbb::task_group tg;
     tick_count t0;
     tick_count t1;
 
@@ -184,7 +275,6 @@ int main(int argc, char **argv)
         one_dimensional_integral(a1, b1, h, &seqRes);
         t1 = tick_count::now();
         std::cout << "Work took sequential version " << (t1 - t0).seconds() << " seconds" << std::endl;
-        task_list tasks;
         t0 = tick_count::now();
         TaskOneDimIntegral& task = *new(task::allocate_root()) TaskOneDimIntegral(a1, b1, h, &parRes);
         task::spawn_root_and_wait(task);
@@ -221,17 +311,32 @@ int main(int argc, char **argv)
         t0 = tick_count::now();
         two_dimensional_integral_multi_step(a1, b1, a2, b2, h, &seqRes);
         t1 = tick_count::now();
-        std::cout << "Work took sequential version " << (t1 - t0).seconds() << " seconds" << std::endl;
+        seqTime = (t1 - t0).seconds();
+        std::cout << "Work took sequential version " << seqTime << " seconds" << std::endl;
         std::cout << "Result one dimersion integral (sequential version) " << seqRes << std::endl;
 
         t0 = tick_count::now();
         TaskTwoDimIntegral& task = *new(task::allocate_root()) TaskTwoDimIntegral(a1, b1, a2, b2, h, &parRes);
         task::spawn_root_and_wait(task);
         t1 = tick_count::now();
-        std::cout << "Work took parallel version " << (t1 - t0).seconds() << " seconds" << std::endl;
-        std::cout << "Result one dimersion integral (Parallel version) " << parRes << std::endl;
+        
+        parTime = (t1 - t0).seconds();
+        std::cout << "Work took parallel version " << parTime << " seconds" << std::endl;
+        std::cout << "Result two dimersion integral (Parallel version) " << parRes << std::endl << std::endl;
+        parRes = 0.0;
 
-        //CheckResultsTest(sequentTimeWork, parallTimeWork);
+        CheckResultsTest(seqTime, parTime);
+
+        std::cout << "*********** Dividing the interval by X and Y ************" << std::endl;
+        
+
+        t0 = tick_count::now();
+        TaskTwoDimIntegralXY& taskNew = *new(task::allocate_root()) TaskTwoDimIntegralXY(a1, b1, a2, b2, h, &parRes);
+        task::spawn_root_and_wait(taskNew);
+        t1 = tick_count::now();
+        std::cout << "Work took parallel version " << (t1 - t0).seconds() << " seconds" << std::endl;
+        std::cout << "Result two dimersion integral (Parallel version) " << parRes << std::endl;
+
         //Test(seqRes, parRes);
     }
 
